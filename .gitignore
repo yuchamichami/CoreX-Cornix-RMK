@@ -1,0 +1,16 @@
+.DS_Store
+target/
+build/
+__pycache__/
+*.pyc
+*.elf
+*.bin
+*.log
+*.vil
+!keymaps/CoreX-Cornix-default.vil
+!keymaps/CoreX-default.vil
+!keymaps/reference/cornix-default-keymap.vil
+CURRENT.UF2
+INFO_UF2.TXT
+.env
+.env.*

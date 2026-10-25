@@ -1,0 +1,10 @@
+{
+  "triggerUser": 28,
+  "directions": [
+    {"id": "up", "label": "上", "arrow": "↑", "layer": 5, "row": 0, "col": 6},
+    {"id": "down", "label": "下", "arrow": "↓", "layer": 5, "row": 1, "col": 6},
+    {"id": "left", "label": "左", "arrow": "←", "layer": 5, "row": 2, "col": 6},
+    {"id": "right", "label": "右", "arrow": "→", "layer": 6, "row": 0, "col": 6}
+  ],
+  "sensitivity": {"layer": 6, "row": 1, "col": 6, "users": [29, 30, 31], "labels": ["しっかり動かす", "標準", "軽く動かす"], "thresholds": [120, 80, 40]}
+}

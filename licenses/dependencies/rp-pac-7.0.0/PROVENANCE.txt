@@ -1,0 +1,6 @@
+The crate README declares the generated code under the same BSD-3-Clause terms as the Raspberry Pi SVDs.
+The original licenseText element content is preserved from the exact repository commit recorded by the crate archive. The SVD elements declare SPDX BSD-3-Clause but omit its full terms, so the Raspberry Pi Pico SDK license text is included separately without changing its notice.
+SVD sources:
+https://raw.githubusercontent.com/embassy-rs/rp-pac/2d88a4388c28101b5a8d6def1567d86b6ffc00b3/svd/rp2040.svd
+https://raw.githubusercontent.com/embassy-rs/rp-pac/2d88a4388c28101b5a8d6def1567d86b6ffc00b3/svd/rp235x.svd
+Supplemental BSD-3-Clause text: https://raw.githubusercontent.com/raspberrypi/pico-sdk/6a7db34ff63345a7badec79ebea3aaef1712f374/LICENSE.TXT

@@ -1,0 +1,54 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-checks:
+    name: Host tests and distribution checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Run checks
+        run: ./tools/test.sh
+  firmware-builds:
+    name: Build all five firmware variants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libclang-dev
+          rustup toolchain install 1.95.0 --profile minimal --target thumbv7em-none-eabihf --component llvm-tools-preview
+          cargo +1.95.0 install flip-link --version 0.1.12 --locked
+      - name: Build application images
+        run: ./build.sh all
+      - name: Verify builds, configuration identity and storage schema
+        run: |
+          python3 tools/verify_release.py --rebuilt
+          cp firmware/manifest.json build/distributed-manifest.json
+          python3 tools/package_release.py
+          python3 - <<'PY'
+          import json
+          old = json.load(open('build/distributed-manifest.json'))
+          new = json.load(open('firmware/manifest.json'))
+          for key in ['configuration_profile', 'storage_schema_hash', 'device_names', 'release']:
+              assert old[key] == new[key], f'Rebuilt {key} differs from distribution'
+          PY

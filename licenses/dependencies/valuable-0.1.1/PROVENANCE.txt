@@ -1,0 +1,4 @@
+valuable 0.1.1 declares MIT but omits a standalone license file from its crate archive.
+The LICENSE is copied verbatim from the package repository at the exact commit recorded by the archived .cargo_vcs_info.json.
+Source: https://raw.githubusercontent.com/tokio-rs/valuable/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE
+SHA-256: ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44

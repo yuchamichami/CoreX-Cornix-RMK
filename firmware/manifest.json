@@ -1,0 +1,108 @@
+{
+  "distribution": "CoreX / Cornix TB",
+  "release": "v0.11.3",
+  "rust_toolchain": "1.95.0",
+  "target": "thumbv7em-none-eabihf",
+  "rmk_base_commit": "8a6889854fb996be592c55075b385234133e1772",
+  "rmk_features": "_ble,_nrf_ble,adafruit_bl,async_matrix,host,log,nrf52840_ble,split,storage,usb_log,vial",
+  "storage_schema_hash": "0xA805CEFB",
+  "device_names": {
+    "right_bluetooth": "Cornix TB",
+    "right_usb_product": "Cornix TB"
+  },
+  "validation_scope": "Application builds, UF2 bounds/vectors/checksums, compiled Vial definition and storage schema verified. This release has not been flashed or tested over Bluetooth on hardware.",
+  "images": [
+    {
+      "side": "raytac-right-26000",
+      "filename": "CoreX-Right-v0.11.3-s140v6.uf2",
+      "application_version": "0.11.3",
+      "binary_bytes": 540548,
+      "binary_sha256": "244daade451fbf6feecfd1e1be06874c3579b7730879d56463b6bda8a209f3ea",
+      "uf2_sha256": "ce5e3a79b2a28b701ea91bb3fde9a23a0ad653689331c3f0629323655cd3cbcd",
+      "flash_start": "0x26000",
+      "flash_end_exclusive": "0xaa000"
+    },
+    {
+      "side": "raytac-right-27000",
+      "filename": "CoreX-Right-v0.11.3-s140v7.uf2",
+      "application_version": "0.11.3",
+      "binary_bytes": 540548,
+      "binary_sha256": "06bd4f4dfb11ea7e61fe57e908ae53744bf87e5bc0a7701b845f7a9c597d4d41",
+      "uf2_sha256": "d5e151ba75f23290bd49a3329176a1ea23a05003bd6cb1d4274b0116c9805594",
+      "flash_start": "0x27000",
+      "flash_end_exclusive": "0xab000"
+    },
+    {
+      "side": "raytac-left-26000",
+      "filename": "CoreX-Left-v0.11.3-s140v6.uf2",
+      "application_version": "0.11.3",
+      "binary_bytes": 349892,
+      "binary_sha256": "c314e51057b6c9da8ce8fe14bed8b4b8c1e8d472f441ad71d8e509894aec5c58",
+      "uf2_sha256": "e47b8e0506dcbbbbcbc317564de51dfa72387a2d14ac3c07b080b4190616e5a0",
+      "flash_start": "0x26000",
+      "flash_end_exclusive": "0x7b700"
+    },
+    {
+      "side": "raytac-left-27000",
+      "filename": "CoreX-Left-v0.11.3-s140v7.uf2",
+      "application_version": "0.11.3",
+      "binary_bytes": 349892,
+      "binary_sha256": "f0c1d567da1fdc01a6b3f5ec4eedb27b4fa7be861c065154f59ca382655a0349",
+      "uf2_sha256": "40c87d083ccda62f870c10610606b355010208db0e3f513f8f322ea3018fd7c1",
+      "flash_start": "0x27000",
+      "flash_end_exclusive": "0x7c700"
+    },
+    {
+      "side": "left",
+      "filename": "Cornix-Stock-Left-v0.11.3.uf2",
+      "application_version": "0.11.3",
+      "binary_bytes": 350028,
+      "binary_sha256": "d17cd367985070e4a551e0de3759e4ce91590df85845837a30de96a894446041",
+      "uf2_sha256": "6c11da0d4ae22e3587100ba95644f1943a9e7097c3315798db0dde6ab0770909",
+      "flash_start": "0x1000",
+      "flash_end_exclusive": "0x56800"
+    }
+  ],
+  "configuration_profile": {
+    "uid": "436f726558525931",
+    "firmware": 2819,
+    "pointingDevices": [
+      "trackball"
+    ],
+    "gestures": true,
+    "definitionSize": 2116,
+    "definitionSha256": "c07519690d5c9ae5d41496d3b2f4046962259de8b169f5bacb3e755245f26a49",
+    "matrixMap": [
+      [
+        3,
+        4,
+        0,
+        5
+      ],
+      [
+        3,
+        3,
+        3,
+        4
+      ],
+      [
+        3,
+        6,
+        3,
+        3
+      ],
+      [
+        2,
+        6,
+        3,
+        6
+      ],
+      [
+        0,
+        5,
+        2,
+        6
+      ]
+    ]
+  }
+}

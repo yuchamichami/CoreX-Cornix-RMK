@@ -1,0 +1,87 @@
+rp2040-boot2-0.3.0/src/boot2_at25sf128a.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/boot2_gd25q64cs.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/boot2_generic_03h.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/boot2_is25lp080.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/boot2_w25q080.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/boot2_w25x10cl.S
+// Copyright (c) 2019-2021 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/boot2_helpers/exit_from_boot2.S
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/boot2_helpers/read_flash_sreg.S
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/boot2_helpers/wait_ssi_ready.S
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/platform_defs.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/regs/addressmap.h
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/regs/m0plus.h
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/regs/pads_qspi.h
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/regs/sio.h
+ * Copyright (c) 2022 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/hardware/regs/ssi.h
+ * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/asm_helper.S
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/config.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/error.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/platform.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/types.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico/version.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
+
+rp2040-boot2-0.3.0/src/include/pico.h
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause

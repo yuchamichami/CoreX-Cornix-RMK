@@ -1,0 +1,5 @@
+Cargo.toml declares BSD-3-Clause; the preserved crate README declares Raspberry Pi assembly under BSD-3-Clause and the remaining files under CC0.
+COPYRIGHT-NOTICES.txt contains unchanged copyright/SPDX lines extracted from the named files in the checksum-verified crate archive. The original archive omits complete license terms.
+Supplemental original Raspberry Pi BSD-3-Clause text: https://raw.githubusercontent.com/raspberrypi/pico-sdk/6a7db34ff63345a7badec79ebea3aaef1712f374/LICENSE.TXT
+Supplemental CC0 text: exact copy of the standard CC0 1.0 text shipped as LICENSE in the checksum-verified tiny-keccak 2.0.2 crate, also included in this inventory.
+These texts supplement rather than replace the archived source notices.

@@ -1,0 +1,21 @@
+[package]
+name = "corex-pointing-host-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["raytac-r-a14"]
+raytac-r-a14 = []
+
+[dependencies]
+rmk = { path = "../../source/corex-rmk-upstream/rmk", default-features = false, features = ["std", "log", "_ble", "split", "vial", "host_lock"] }
+embassy-time = "0.5"
+embassy-futures = "0.1"
+embedded-io-async = "0.7"
+critical-section = { version = "1.2", features = ["std"] }
+log = "0.4"
+
+[lib]
+path = "lib.rs"
+doctest = false
