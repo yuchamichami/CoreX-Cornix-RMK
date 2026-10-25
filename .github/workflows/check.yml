@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   host-checks:
