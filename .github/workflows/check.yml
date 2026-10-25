@@ -38,7 +38,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libclang-dev
+          sudo apt-get install -y build-essential pkg-config libclang-dev gcc-arm-none-eabi libnewlib-arm-none-eabi
           rustup toolchain install 1.95.0 --profile minimal --target thumbv7em-none-eabihf --component llvm-tools-preview
           cargo +1.95.0 install flip-link --version 0.1.12 --locked
       - name: Build application images

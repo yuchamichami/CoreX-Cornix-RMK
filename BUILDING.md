@@ -12,7 +12,13 @@ python3 tools/package_release.py
 ./tools/test.sh
 ```
 
-初回はCargo依存関係のダウンロードが必要です。LinuxではCコンパイラ、pkg-config、libclangの開発パッケージも用意します。Vial定義の圧縮に使うliblzmaはソースから静的にビルドし、ホストと異なるCPU用のシステムライブラリを誤ってリンクしないようにしています。
+初回はCargo依存関係のダウンロードが必要です。Cコンパイラ、pkg-config、libclangに加えて、暗号ライブラリのビルドにArm組み込み向けGCC（`arm-none-eabi-gcc`）が必要です。Ubuntuでは次を先にインストールします。
+
+```sh
+sudo apt-get install build-essential pkg-config libclang-dev gcc-arm-none-eabi libnewlib-arm-none-eabi
+```
+
+Vial定義の圧縮に使うliblzmaはソースから静的にビルドし、ホストと異なるCPU用のシステムライブラリを誤ってリンクしないようにしています。
 
 ## 対象を選ぶ
 
