@@ -2,7 +2,9 @@
 
 Cornixのケースに対応した交換基板向けのファームウェアです。トラックボールとキー割り当てを本体で処理します。Bluetoothの接続名は **Cornix TB**、Vialの表示名は **CoreX** です。
 
-このリポジトリではファームウェアを配布します。設定用Webアプリ **CoreX Studio** は別に管理し、Webページの公開を準備しています。公開先が決まり次第、ここに追加します。現在は[Vial](https://get.vial.today/)をUSB接続で使えます。
+このリポジトリではファームウェアを配布します。設定用Webアプリ [CoreX Studio](https://corex-studio.pages.dev/) は別に管理しています。[Vial](https://get.vial.today/)もUSB接続で使えます。
+
+**純正Cornixの左右基板向けには、別の[試験版と導入手順](docs/cornix-stock.md)があります。** 実機確認前です。以下のトラックボールの案内と交換基板用UF2は、この試験版とは別です。
 
 ## 書き込み済みのセットを使う
 
