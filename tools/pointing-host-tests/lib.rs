@@ -2,6 +2,9 @@
 //! USB uses an in-memory transport; RMK's host-test flash task acknowledges writes.
 #![allow(dead_code)]
 
+#[path = "../../source/corex-rmk-pair/right/src/pairing_keys.rs"]
+mod pairing_keys;
+
 #[path = "../../source/corex-rmk-pair/right/src/gesture_config_raytac.rs"]
 mod gesture_config;
 #[path = "../../source/corex-rmk-pair/right/src/paw_wire.rs"]

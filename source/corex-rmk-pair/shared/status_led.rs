@@ -1,5 +1,6 @@
-//! Board status lights. All animations are brief; after the last pulse this
-//! task waits only for an event. The stock left's RGB supply is then cut off.
+//! Board status lights. Explicit split pairing blinks for its actual window;
+//! other indications are brief. At rest this task waits only for an event and
+//! the stock left's RGB supply is cut off.
 
 #[path = "status_led_logic.rs"]
 mod logic;
@@ -14,10 +15,11 @@ use rmk::event::{
 };
 use rmk::macros::processor;
 use rmk::processor::{PollingProcessor, Processor};
+use rmk::split::ble::PairingState;
 use rmk::types::battery::{BatteryStatus, ChargeState};
 use rmk::types::connection::ConnectionType;
 
-use logic::{Color, Frame, LowBattery, Notice, OFF, Player};
+use logic::{Color, Frame, LowBattery, Notice, OFF, PairingNotice, Player};
 
 pub enum Lights {
     /// A13 D21/P0.07 and D22/P1.09 have GND cathodes: HIGH is on.
@@ -209,12 +211,20 @@ impl StatusLeds {
         self.player.set_sleeping(event.0);
     }
 
+    fn pairing_changed(&mut self, state: PairingState) {
+        self.sleeping = false;
+        self.player.pairing(
+            match state {
+                PairingState::Open => PairingNotice::Open,
+                PairingState::Success => PairingNotice::Success,
+                PairingState::Timeout | PairingState::Failed => PairingNotice::Failure,
+            },
+            now_ms(),
+        );
+    }
+
     async fn on_split_pairing_event(&mut self, event: SplitPairingEvent) {
-        if event.open {
-            self.notice(Notice::Pairing);
-        } else {
-            self.player.cancel_pairing();
-        }
+        self.pairing_changed(event.state);
     }
 }
 
@@ -232,14 +242,24 @@ impl PollingProcessor for StatusLeds {
             if self.central { "Right" } else { "Left" },
             env!("CARGO_PKG_VERSION")
         );
-        // Pairing may open before this processor has subscribed. Sample once at
-        // startup; all subsequent changes arrive as local events.
-        self.notice(if rmk::split::ble::pairing_window_open() {
-            Notice::Pairing
+        // Startup can race with the first pairing event. A retained state also
+        // preserves a result that arrived before this processor subscribed.
+        if let Some(state) = rmk::split::ble::pairing_state() {
+            self.pairing_changed(state);
         } else {
-            Notice::SplitDisconnected
-        });
+            self.notice(Notice::SplitDisconnected);
+        }
         loop {
+            // Only while already blinking, sample the authoritative result too:
+            // a lagged event must not leave the blue lights running forever.
+            // No state polling or timer runs when the indication is inactive.
+            if self.player.pairing_is_open() {
+                if let Some(state) = rmk::split::ble::pairing_state() {
+                    if state != PairingState::Open {
+                        self.pairing_changed(state);
+                    }
+                }
+            }
             let (frame, deadline) = self.player.sample(now_ms());
             if frame != self.frame {
                 self.lights.set(frame).await;

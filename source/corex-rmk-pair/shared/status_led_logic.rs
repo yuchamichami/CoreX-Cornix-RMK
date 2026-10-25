@@ -1,4 +1,5 @@
-//! Finite status indications. No animation or deadline survives its last pulse.
+//! Event-driven status indications. Pairing follows its radio lifecycle; every
+//! other animation ends with no idle deadline.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Color {
@@ -23,7 +24,6 @@ pub enum Notice {
     Profile(u8),
     LocalLow,
     PeerLow,
-    Pairing,
 }
 
 impl Notice {
@@ -38,9 +38,23 @@ impl Notice {
             Self::Profile(id) => (Frame(Off, Blue), id.min(4) + 1, 180, 2),
             Self::LocalLow => (Frame(Red, Off), 1, 350, 3),
             Self::PeerLow => (Frame(Red, Off), 2, 350, 3),
-            Self::Pairing => (Frame(Blue, Blue), 3, 220, 4),
         }
     }
+}
+
+/// Pairing owns both lights until the radio reports a result. This is separate
+/// from ordinary split reconnection and PC Bluetooth notifications.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairingNotice {
+    Open,
+    Success,
+    Failure,
+}
+
+#[derive(Debug)]
+struct PairingAnimation {
+    notice: PairingNotice,
+    start_ms: u64,
 }
 
 #[derive(Debug)]
@@ -49,6 +63,7 @@ pub struct Player {
     battery_pending: [Option<Notice>; 2],
     start_ms: u64,
     sleeping: bool,
+    pairing: Option<PairingAnimation>,
 }
 
 impl Player {
@@ -58,12 +73,15 @@ impl Player {
             battery_pending: [None; 2],
             start_ms: 0,
             sleeping: false,
+            pairing: None,
         }
     }
 
     pub fn request(&mut self, notice: Notice, now_ms: u64) {
         self.expire(now_ms);
-        if self.sleeping {
+        // Do not append a red battery warning or a host notice to the pairing
+        // result: its green/amber acknowledgement must end with both lights off.
+        if self.sleeping || self.pairing.is_some() {
             return;
         }
         if let Some(current) = self.notice {
@@ -85,18 +103,45 @@ impl Player {
 
     pub fn set_sleeping(&mut self, sleeping: bool) {
         self.sleeping = sleeping;
-        // Neither sleep entry nor wake replays a stale connection animation.
+        // Sleep/wake broadcasts can race with explicit pairing. Its own radio
+        // lifecycle remains authoritative, so neither broadcast clears it.
         self.notice = None;
         self.battery_pending = [None; 2];
     }
 
-    pub fn cancel_pairing(&mut self) {
-        if self.notice == Some(Notice::Pairing) {
-            self.notice = None;
+    pub fn pairing(&mut self, notice: PairingNotice, now_ms: u64) {
+        // The authoritative state may be sampled before its queued event arrives.
+        // Do not restart the acknowledgement when the same result arrives twice.
+        if self.pairing.as_ref().is_some_and(|current| current.notice == notice) {
+            return;
         }
+        self.sleeping = false;
+        self.notice = None;
+        self.battery_pending = [None; 2];
+        self.pairing = Some(PairingAnimation {
+            notice,
+            start_ms: now_ms,
+        });
+    }
+
+    pub fn pairing_is_open(&self) -> bool {
+        self.pairing
+            .as_ref()
+            .is_some_and(|current| current.notice == PairingNotice::Open)
     }
 
     fn expire(&mut self, now_ms: u64) {
+        if let Some(pairing) = &self.pairing {
+            let duration = match pairing.notice {
+                PairingNotice::Open => None,
+                PairingNotice::Success => Some(2_000),
+                // Three 500 ms pulses, with a 500 ms dark gap between each.
+                PairingNotice::Failure => Some(2_500),
+            };
+            if duration.is_some_and(|duration| now_ms.saturating_sub(pairing.start_ms) >= duration) {
+                self.pairing = None;
+            }
+        }
         if let Some(notice) = self.notice {
             let (_, pulses, width, _) = notice.pattern();
             // Leave a visible dark gap between queued battery indications.
@@ -115,7 +160,22 @@ impl Player {
 
     pub fn sample(&mut self, now_ms: u64) -> (Frame, Option<u64>) {
         self.expire(now_ms);
-        let Some(notice) = self.notice else { return (OFF, None) };
+        if let Some(pairing) = &self.pairing {
+            if pairing.notice == PairingNotice::Success {
+                return (Frame(Color::Green, Color::Green), Some(pairing.start_ms + 2_000));
+            }
+            let phase = now_ms.saturating_sub(pairing.start_ms) / 500;
+            let color = if pairing.notice == PairingNotice::Open {
+                Color::Blue
+            } else {
+                Color::Amber
+            };
+            let frame = if phase % 2 == 0 { Frame(color, color) } else { OFF };
+            return (frame, Some(pairing.start_ms + (phase + 1) * 500));
+        }
+        let Some(notice) = self.notice else {
+            return (OFF, None);
+        };
         let (frame, _, width, _) = notice.pattern();
         let phase = now_ms.saturating_sub(self.start_ms) / width;
         let deadline = self.start_ms + (phase + 1) * width;
@@ -206,7 +266,7 @@ mod tests {
         let mut player = Player::new();
         player.request(Notice::LocalLow, 0);
         player.set_sleeping(true);
-        player.request(Notice::Pairing, 1);
+        player.request(Notice::HostConnected, 1);
         assert_eq!(player.sample(2), (OFF, None));
         player.set_sleeping(false);
         assert_eq!(player.sample(3), (OFF, None));
@@ -222,28 +282,123 @@ mod tests {
     }
 
     #[test]
-    fn both_low_batteries_are_shown_after_pairing_without_an_idle_timer() {
+    fn both_low_batteries_are_queued_without_an_idle_timer() {
         let mut player = Player::new();
-        player.request(Notice::Pairing, 0);
-        player.request(Notice::LocalLow, 10);
+        player.request(Notice::LocalLow, 0);
         player.request(Notice::PeerLow, 20);
-        assert_eq!(player.sample(1100).0, OFF);
-        assert_eq!(player.sample(1320).0, Frame(Color::Red, Color::Off));
-        assert_eq!(player.sample(1670).0, OFF);
-        assert_eq!(player.sample(2020).0, Frame(Color::Red, Color::Off));
-        assert_eq!(player.sample(2720).0, Frame(Color::Red, Color::Off));
-        assert_eq!(player.sample(3070), (OFF, None));
+        player.request(Notice::PeerLow, 30); // No duplicate queued warning.
+        assert_eq!(player.sample(31).0, Frame(Color::Red, Color::Off));
+        assert_eq!(player.sample(350).0, OFF);
+        assert_eq!(player.sample(700).0, Frame(Color::Red, Color::Off));
+        assert_eq!(player.sample(1050).0, OFF);
+        assert_eq!(player.sample(1400).0, Frame(Color::Red, Color::Off));
+        assert_eq!(player.sample(1750), (OFF, None));
     }
 
     #[test]
-    fn pairing_close_cancels_only_pairing_notice() {
+    fn waiting_tracks_the_real_pairing_window_instead_of_three_pulses() {
         let mut player = Player::new();
-        player.request(Notice::Pairing, 0);
-        player.cancel_pairing();
-        assert_eq!(player.sample(1), (OFF, None));
-        player.request(Notice::LocalLow, 2);
-        player.cancel_pairing();
-        assert_ne!(player.sample(3).0, OFF);
+        player.pairing(PairingNotice::Open, 100);
+        assert!(player.pairing_is_open());
+        assert_eq!(player.sample(100), (Frame(Color::Blue, Color::Blue), Some(600)));
+        assert_eq!(player.sample(599).0, Frame(Color::Blue, Color::Blue));
+        assert_eq!(player.sample(600), (OFF, Some(1100)));
+        assert_eq!(player.sample(59_100).0, Frame(Color::Blue, Color::Blue));
+        // The radio's terminal event is authoritative, including a late event.
+        assert_eq!(player.sample(60_100).0, Frame(Color::Blue, Color::Blue));
+        player.pairing(PairingNotice::Failure, 60_100);
+        assert!(!player.pairing_is_open());
+        assert_eq!(player.sample(62_600), (OFF, None));
+    }
+
+    #[test]
+    fn successful_pairing_holds_both_green_for_two_seconds_then_stops() {
+        let mut player = Player::new();
+        player.pairing(PairingNotice::Open, 0);
+        player.pairing(PairingNotice::Success, 1234);
+        assert!(!player.pairing_is_open());
+        assert_eq!(player.sample(1234), (Frame(Color::Green, Color::Green), Some(3234)));
+        assert_eq!(player.sample(3233).0, Frame(Color::Green, Color::Green));
+        assert_eq!(player.sample(3234), (OFF, None));
+        assert_eq!(player.sample(90_000), (OFF, None));
+    }
+
+    #[test]
+    fn unsuccessful_pairing_has_exactly_three_amber_pulses_then_stops() {
+        let mut player = Player::new();
+        // A storage failure can happen before the pairing window opens.
+        player.pairing(PairingNotice::Failure, 100);
+        for (elapsed, lit) in [
+            (0, true),
+            (499, true),
+            (500, false),
+            (999, false),
+            (1000, true),
+            (1499, true),
+            (1500, false),
+            (1999, false),
+            (2000, true),
+            (2499, true),
+        ] {
+            let expected = if lit { Frame(Color::Amber, Color::Amber) } else { OFF };
+            assert_eq!(player.sample(100 + elapsed).0, expected);
+        }
+        assert_eq!(player.sample(2600), (OFF, None));
+        assert_eq!(player.sample(60_000), (OFF, None));
+    }
+
+    #[test]
+    fn wake_order_and_sleep_broadcast_do_not_drop_explicit_pairing() {
+        let mut player = Player::new();
+        player.set_sleeping(true);
+        player.pairing(PairingNotice::Open, 100);
+        player.set_sleeping(false); // Old event ordering: Open before wake.
+        assert_eq!(player.sample(100).0, Frame(Color::Blue, Color::Blue));
+        player.set_sleeping(true); // A queued sleep event is not a pairing result.
+        assert_eq!(player.sample(1100).0, Frame(Color::Blue, Color::Blue));
+        player.set_sleeping(false);
+        player.pairing(PairingNotice::Success, 1200);
+        player.set_sleeping(false);
+        assert_eq!(player.sample(1200).0, Frame(Color::Green, Color::Green));
+        assert_eq!(player.sample(3200), (OFF, None));
+    }
+
+    #[test]
+    fn pairing_and_its_result_cannot_be_overwritten_or_followed_by_stale_notices() {
+        let mut player = Player::new();
+        player.request(Notice::LocalLow, 0);
+        player.request(Notice::PeerLow, 1); // Pairing also discards old queued warnings.
+        player.pairing(PairingNotice::Open, 2);
+        for notice in [
+            Notice::LocalLow,
+            Notice::PeerLow,
+            Notice::HostConnected,
+            Notice::Profile(1),
+            Notice::SplitConnected,
+            Notice::SplitDisconnected,
+        ] {
+            player.request(notice, 10);
+        }
+        assert_eq!(player.sample(1002).0, Frame(Color::Blue, Color::Blue));
+        player.pairing(PairingNotice::Success, 2000);
+        player.request(Notice::SplitConnected, 2001);
+        player.request(Notice::LocalLow, 2002);
+        assert_eq!(player.sample(3999).0, Frame(Color::Green, Color::Green));
+        assert_eq!(player.sample(4000), (OFF, None));
+        // A genuinely new event works normally after the acknowledgement.
+        player.request(Notice::HostDisconnected, 5000);
+        assert_eq!(player.sample(5000).0, Frame(Color::Off, Color::Amber));
+    }
+
+    #[test]
+    fn duplicate_lifecycle_event_does_not_extend_result() {
+        let mut player = Player::new();
+        player.pairing(PairingNotice::Open, 0);
+        player.pairing(PairingNotice::Success, 100);
+        player.pairing(PairingNotice::Success, 110);
+        assert_eq!(player.sample(2100), (OFF, None));
+        player.pairing(PairingNotice::Open, 3000);
+        assert_eq!(player.sample(3000).0, Frame(Color::Blue, Color::Blue));
     }
 
     #[test]
@@ -283,7 +438,6 @@ mod tests {
             Notice::Profile(255),
             Notice::LocalLow,
             Notice::PeerLow,
-            Notice::Pairing,
         ] {
             let mut player = Player::new();
             player.request(notice, 10);

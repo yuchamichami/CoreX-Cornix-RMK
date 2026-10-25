@@ -30,6 +30,16 @@ Additional sleep/wake changes in v0.9.7:
 - `rmk/src/input_device/pointing.rs`: count sub-pixel movement as activity without sending an empty cursor HID report.
 - Host regression tests and `test_support.rs`: allow the CoreX runner's per-test process isolation alongside upstream's nextest runner.
 
+Explicit split-pairing changes in v0.11.4:
+
+- `rmk/src/split/ble/mod.rs`, `central.rs`, and `peripheral.rs`: open a bounded 60-second discovery and registration window only after an explicit request; keep saved-peer reconnect behavior; enforce the deadline during connection setup and storage operations; report successful, timed-out, and failed registration outcomes.
+- `rmk/src/event/split.rs`: include the pairing outcome in the split-pairing event consumed by the CoreX status LEDs.
+- `rmk/src/split/peripheral.rs`: bound connected-peer reset storage and acknowledgement waits so a failed reset cannot leave the old session stuck.
+- `rmk/src/split/ble/input.rs`: cancel the disconnected left-side physical pairing chord when another key is pressed, and require initial input synchronization to complete before reporting pairing success.
+- `rmk/src/keyboard.rs`: prevent a remapped User long-hold action from also clearing a PC bond while the dedicated right-side physical pairing chord is held.
+
+The matching right-side fixed-key processor and RGB status display are maintained in `source/corex-rmk-pair/`. These changes are specific to this CoreX distribution; they do not describe a universal RMK RESET-button pairing feature.
+
 The repository's `tools/git-metadata/git` preserves the installed firmware's RMK commit identifier for storage compatibility. That identifier is a build-metadata compatibility value; this distribution also includes the modifications listed above. Vendored README/test configuration files are retained from the working source snapshot.
 
 The unused STM32 maintenance utility `rmk-config/src/gen_usb_map.py` also accepts its data directory as a command-line argument instead of a developer's hardcoded local path. This utility is not part of the nRF52840 build.

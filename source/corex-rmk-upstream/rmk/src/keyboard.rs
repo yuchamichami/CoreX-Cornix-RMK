@@ -53,6 +53,30 @@ pub(crate) static LAST_KEY_TIMESTAMP: Signal<crate::RawMutex, u32> = Signal::new
 /// LedIndicator type would be nicer, but that does not have const expr constructor
 pub(crate) static LOCK_LED_STATES: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0u8);
 
+// Only the physical recovery processor sets this reservation. The keyboard
+// consumes it on raw key-up, so subscriber scheduling cannot clear it early.
+#[cfg(all(feature = "_ble", feature = "split"))]
+static COREX_PAIRING_RELEASES: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Reserve the two key releases after CoreX's physical five-second pairing hold.
+/// Ordinary HID/modifier releases still run; reboot/storage/User side effects do not.
+#[cfg(all(feature = "_ble", feature = "split"))]
+pub fn reserve_corex_pairing_releases() {
+    COREX_PAIRING_RELEASES.fetch_or(3, core::sync::atomic::Ordering::AcqRel);
+}
+
+#[cfg(all(feature = "_ble", feature = "split"))]
+fn corex_pairing_key_bit(event: KeyboardEvent) -> u8 {
+    match event.pos {
+        KeyboardEventPos::Key(pos) => match (pos.row, pos.col) {
+            (1, 5) => 1,
+            (3, 4) => 2,
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
 /// Read the current host-driven lock LED state as a typed [`LedIndicator`].
 ///
 /// Updated by `run_led_reader` whenever the host sends a SET_REPORT for LEDs;
@@ -206,6 +230,15 @@ pub struct Keyboard<'a> {
     #[cfg(feature = "_ble")]
     user_hold: Option<(Instant, u8)>,
 
+    /// Releases belonging to the completed physical pairing gesture. Keep the
+    /// consumed mask through buffered key-up actions, until the next physical press.
+    #[cfg(all(feature = "_ble", feature = "split"))]
+    pairing_release_mask: u8,
+
+    /// Records entry into the actual destructive action branches in host tests.
+    #[cfg(test)]
+    keyboard_control_effects: u8,
+
     /// Caps Word state machine
     caps_word: CapsWordState,
 
@@ -257,6 +290,10 @@ impl<'a> Keyboard<'a> {
             osm_deadline: None,
             #[cfg(feature = "_ble")]
             user_hold: None,
+            #[cfg(all(feature = "_ble", feature = "split"))]
+            pairing_release_mask: 0,
+            #[cfg(test)]
+            keyboard_control_effects: 0,
             caps_word: CapsWordState::default(),
             macro_due: Instant::from_ticks(0),
             fork_states: [None; FORK_MAX_NUM],
@@ -375,8 +412,31 @@ impl<'a> Keyboard<'a> {
         }
     }
 
+    /// A completed recovery hold must not execute remapped control actions on
+    /// release. This does not undo arbitrary actions already sent on key-down.
+    fn pairing_release_is_reserved(&self, event: KeyboardEvent) -> bool {
+        #[cfg(all(feature = "_ble", feature = "split"))]
+        {
+            !event.pressed && self.pairing_release_mask & corex_pairing_key_bit(event) != 0
+        }
+        #[cfg(not(all(feature = "_ble", feature = "split")))]
+        {
+            let _ = event;
+            false
+        }
+    }
+
     /// Process key changes at (row, col)
     pub async fn process_inner(&mut self, event: KeyboardEvent) {
+        #[cfg(all(feature = "_ble", feature = "split"))]
+        {
+            let bit = corex_pairing_key_bit(event);
+            if event.pressed {
+                self.pairing_release_mask &= !bit;
+            } else if COREX_PAIRING_RELEASES.fetch_and(!bit, core::sync::atomic::Ordering::AcqRel) & bit != 0 {
+                self.pairing_release_mask |= bit;
+            }
+        }
         gesture::release(event);
         // A User-key hold gesture needs 5s without any key event, so cancel it here.
         #[cfg(feature = "_ble")]
@@ -1481,6 +1541,11 @@ impl<'a> Keyboard<'a> {
     }
 
     async fn process_action_keyboard_control(&mut self, keyboard_control: KeyboardAction, event: KeyboardEvent) {
+        if self.pairing_release_is_reserved(event)
+            && matches!(keyboard_control, KeyboardAction::Bootloader | KeyboardAction::Reboot | KeyboardAction::ClearEeprom)
+        {
+            return;
+        }
         match keyboard_control {
             KeyboardAction::CapsWordToggle => {
                 // Handle Caps Word
@@ -1498,12 +1563,14 @@ impl<'a> Keyboard<'a> {
             KeyboardAction::Bootloader => {
                 // When releasing the key, process the boot action
                 if !event.pressed {
+                    #[cfg(test)] { self.keyboard_control_effects += 1; }
                     boot::jump_to_bootloader();
                 }
             }
             KeyboardAction::Reboot => {
                 // When releasing the key, process the boot action
                 if !event.pressed {
+                    #[cfg(test)] { self.keyboard_control_effects += 1; }
                     boot::reboot_keyboard();
                 }
             }
@@ -1512,6 +1579,7 @@ impl<'a> Keyboard<'a> {
                 // When releasing the key, reset the storage — the same operation
                 // `ViaCommand::EepromReset` performs from the host side
                 if !event.pressed {
+                    #[cfg(test)] { self.keyboard_control_effects += 1; }
                     crate::storage::reset().await;
                 }
             }
@@ -1641,6 +1709,11 @@ impl<'a> Keyboard<'a> {
     }
 
     async fn process_user(&mut self, id: u8, event: KeyboardEvent) {
+        if self.pairing_release_is_reserved(event) {
+            #[cfg(feature = "_ble")]
+            { self.user_hold = None; }
+            return;
+        }
         debug!("Processing user key id: {:?}, event: {:?}", id, event);
 
         #[cfg(feature = "_ble")]
@@ -1698,6 +1771,14 @@ impl<'a> Keyboard<'a> {
         let Some((_, id)) = self.user_hold.take_if(|(at, _)| *at <= Instant::now()) else {
             return;
         };
+
+        // CoreX reserves this physical recovery chord independently of the keymap.
+        // Its dedicated processor opens pairing. A remapped User key must not also
+        // erase a PC bond (or restart pairing) when the same five seconds expire.
+        #[cfg(feature = "split")]
+        if self.pressed_keys.read(1, 5) && self.pressed_keys.read(3, 4) {
+            return;
+        }
 
         // Profile selection never erases a bond, even on an accidental long hold.
         if id == NUM_BLE_PROFILE as u8 + 2 {
@@ -2064,6 +2145,117 @@ mod test {
         assert!(matches!(BLE_PROFILE_CHANNEL.try_receive(), Ok(BleProfileAction::ClearBond)));
         block_on(keyboard.process_user(clear, release));
         assert!(BLE_PROFILE_CHANNEL.is_empty());
+    }
+
+    #[cfg(all(feature = "_ble", feature = "split"))]
+    #[test]
+    fn user_hold_cannot_clear_pc_bond_during_physical_pairing_chord() {
+        use embassy_futures::block_on;
+        use embassy_time::MockDriver;
+        use crate::channel::BLE_PROFILE_CHANNEL;
+        MockDriver::get().reset();
+        BLE_PROFILE_CHANNEL.clear();
+        let mut keyboard = create_test_keyboard();
+        keyboard.pressed_keys.update(&KeyboardEvent::key(1, 5, true));
+        keyboard.pressed_keys.update(&KeyboardEvent::key(3, 4, true));
+        block_on(keyboard.process_user(crate::NUM_BLE_PROFILE as u8 + 2, KeyboardEvent::key(1, 5, true)));
+        MockDriver::get().advance(Duration::from_secs(5));
+        block_on(keyboard.fire_user_hold());
+        assert!(BLE_PROFILE_CHANNEL.is_empty());
+    }
+
+    #[cfg(all(feature = "_ble", feature = "split"))]
+    #[test]
+    fn pairing_release_does_not_enter_boot_reboot_or_storage_reset_branches() {
+        block_on(async {
+            let mut keyboard = create_test_keyboard();
+            let keys = [KeyboardEvent::key(1, 5, true), KeyboardEvent::key(3, 4, true)];
+            for control in [KeyboardAction::Bootloader, KeyboardAction::Reboot, KeyboardAction::ClearEeprom] {
+                for key in keys {
+                    keyboard.keymap.set_action_at(key.pos, 0, KeyAction::Single(Action::KeyboardControl(control)));
+                    keyboard.process_inner(key).await;
+                }
+                // The physical processor reserves both releases before requesting pairing.
+                reserve_corex_pairing_releases();
+                for key in keys {
+                    keyboard.process_inner(KeyboardEvent { pressed: false, ..key }).await;
+                    assert_eq!(keyboard.keyboard_control_effects, 0, "{:?} executed at {:?}", control, key.pos);
+                }
+                // Only Keyboard has consumed the reservation; the other processor never clears it.
+                assert_eq!(COREX_PAIRING_RELEASES.load(core::sync::atomic::Ordering::Acquire), 0);
+            }
+            // A later deliberate action on the same position still works.
+            keyboard.keymap.set_action_at(keys[0].pos, 0, KeyAction::Single(Action::KeyboardControl(KeyboardAction::Reboot)));
+            keyboard.process_inner(keys[0]).await;
+            keyboard.process_inner(KeyboardEvent { pressed: false, ..keys[0] }).await;
+            assert_eq!(keyboard.keyboard_control_effects, 1);
+        });
+    }
+
+    #[cfg(all(feature = "_ble", feature = "split"))]
+    #[test]
+    fn pairing_release_does_not_switch_profiles_or_transport() {
+        block_on(async {
+            use crate::channel::BLE_PROFILE_CHANNEL;
+            let mut keyboard = create_test_keyboard();
+            crate::test_support::reset_connection_status();
+            let preferred = crate::state::current_connection_status().preferred;
+            let keys = [KeyboardEvent::key(1, 5, true), KeyboardEvent::key(3, 4, true)];
+            for user in [0, crate::NUM_BLE_PROFILE as u8, crate::NUM_BLE_PROFILE as u8 + 1,
+                         crate::NUM_BLE_PROFILE as u8 + 2, crate::NUM_BLE_PROFILE as u8 + 3] {
+                BLE_PROFILE_CHANNEL.clear();
+                for key in keys {
+                    keyboard.keymap.set_action_at(key.pos, 0, KeyAction::Single(Action::User(user)));
+                    keyboard.process_inner(key).await;
+                }
+                reserve_corex_pairing_releases();
+                for key in keys {
+                    keyboard.process_inner(KeyboardEvent { pressed: false, ..key }).await;
+                    assert!(BLE_PROFILE_CHANNEL.is_empty(), "User{} ran on recovery release", user);
+                    assert_eq!(crate::state::current_connection_status().preferred, preferred);
+                    assert!(keyboard.user_hold.is_none());
+                }
+                assert_eq!(COREX_PAIRING_RELEASES.load(core::sync::atomic::Ordering::Acquire), 0);
+            }
+            keyboard.keymap.set_action_at(keys[0].pos, 0, KeyAction::Single(Action::User(0)));
+            keyboard.process_inner(keys[0]).await;
+            keyboard.process_inner(KeyboardEvent { pressed: false, ..keys[0] }).await;
+            assert!(matches!(BLE_PROFILE_CHANNEL.try_receive(), Ok(crate::ble::profile::BleProfileAction::Switch(0))));
+        });
+    }
+
+    #[cfg(all(feature = "_ble", feature = "split", not(feature = "_no_usb")))]
+    #[test]
+    fn pairing_release_still_releases_normal_keys_and_modifiers_in_either_order() {
+        block_on(async {
+            let mut keyboard = create_test_keyboard();
+            crate::test_support::reset_connection_status();
+            crate::state::set_usb_state(rmk_types::connection::UsbState::Configured);
+            for first in [0, 1] {
+                crate::channel::USB_REPORT_CHANNEL.clear();
+                COREX_PAIRING_RELEASES.store(0, core::sync::atomic::Ordering::Release);
+                let keys = [KeyboardEvent::key(1, 5, true), KeyboardEvent::key(3, 4, true)];
+                keyboard.keymap.set_action_at(keys[0].pos, 0, crate::k!(H));
+                keyboard.keymap.set_action_at(keys[1].pos, 0, crate::k!(LCtrl));
+                for key in keys { keyboard.process_inner(key).await; }
+                assert_eq!(keyboard.held_keycodes()[0], HidKeyCode::H);
+                assert!(keyboard.held_modifiers().left_ctrl());
+                reserve_corex_pairing_releases();
+                // The processor can observe either release first; only this keyboard
+                // processing path consumes the bits, in whichever order it runs.
+                for index in [first, 1 - first] {
+                    keyboard.process_inner(KeyboardEvent { pressed: false, ..keys[index] }).await;
+                }
+                assert_eq!(COREX_PAIRING_RELEASES.load(core::sync::atomic::Ordering::Acquire), 0);
+                assert_eq!(keyboard.held_keycodes(), [HidKeyCode::No; 6]);
+                assert_eq!(keyboard.held_modifiers().into_bits(), 0);
+                let mut last = None;
+                while let Ok(report) = crate::channel::USB_REPORT_CHANNEL.try_receive() { last = Some(report); }
+                let Some(Report::KeyboardReport(report)) = last else { panic!("missing release report"); };
+                assert_eq!(report.keycodes, [0; 6]);
+                assert_eq!(report.modifier, 0);
+            }
+        });
     }
 
     fn create_test_keyboard_with_config(mut config: BehaviorConfig) -> Keyboard<'static> {

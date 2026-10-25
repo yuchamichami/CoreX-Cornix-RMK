@@ -163,6 +163,10 @@ channel_size = 8
 [event.action]
 subs = 2
 
+# Keyboard, host wake, and the fixed physical pairing operation.
+[event.keyboard]
+subs = 4
+
 
 [split]
 connection = "ble"

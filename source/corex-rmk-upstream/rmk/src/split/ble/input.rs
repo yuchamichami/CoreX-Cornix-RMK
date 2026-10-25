@@ -21,6 +21,7 @@ pub(crate) struct PeripheralInput {
     cols: u8,
     wake: Option<(KeyboardEvent, Instant, bool)>,
     pair_since: Option<Instant>,
+    pair_cancelled: bool,
     suppress_pair_keys: bool,
 }
 
@@ -33,6 +34,7 @@ impl PeripheralInput {
             cols,
             wake: None,
             pair_since: None,
+            pair_cancelled: false,
             suppress_pair_keys: false,
         }
     }
@@ -70,7 +72,19 @@ impl PeripheralInput {
     }
 
     fn update_pair_hold(&mut self) {
-        let held = self.rows > 0 && self.cols > 5 && self.held.read(0, 0) && self.held.read(0, 5);
+        let valid = self.rows > 0 && self.cols > 5;
+        let tab = valid && self.held.read(0, 0);
+        let t = valid && self.held.read(0, 5);
+        let other = (0..self.rows).any(|row| {
+            (0..self.cols)
+                .any(|col| !(row == 0 && matches!(col, 0 | 5)) && self.held.read(row, col))
+        });
+        if !tab && !t {
+            self.pair_cancelled = false;
+        } else if other {
+            self.pair_cancelled = true;
+        }
+        let held = tab && t && !self.pair_cancelled && !other;
         if !held || self.suppress_pair_keys {
             self.pair_since = None;
         } else {
@@ -148,6 +162,15 @@ impl PeripheralInput {
                 }))
                 .await?;
         }
+        // Reuse an existing wire message so older centrals can safely ignore
+        // the acknowledgement. New centrals wait for it before reporting success.
+        writer
+            .write(&SplitMessage::ConnectionStatus(
+                crate::state::current_connection_status(),
+            ))
+            .await?;
+        crate::event::publish_event(crate::event::CentralConnectedEvent { connected: true });
+        super::pairing_succeeded();
         Ok(())
     }
 }
@@ -227,6 +250,75 @@ mod tests {
             assert!(!input.record(KeyboardEvent::key(0, 0, false), false));
             assert!(!input.record(KeyboardEvent::key(0, 5, false), false));
             assert!(input.record(KeyboardEvent::key(0, 0, true), false));
+        });
+    }
+    #[test]
+    fn a_third_physical_key_cancels_pairing_until_both_keys_are_released() {
+        test_block_on(async {
+            let mut input = PeripheralInput::new(4, 7);
+            input.record(KeyboardEvent::key(0, 0, true), true);
+            input.record(KeyboardEvent::key(0, 5, true), true);
+            input.update_pair_hold();
+            embassy_time::MockDriver::get().advance(Duration::from_secs(4));
+            input.record(KeyboardEvent::key(1, 1, true), true);
+            input.update_pair_hold();
+            input.record(KeyboardEvent::key(1, 1, false), true);
+            input.update_pair_hold();
+            embassy_time::MockDriver::get().advance(PAIR_HOLD);
+            input.fire_pair_hold();
+            assert!(super::super::PAIRING_REQUEST.try_take().is_none());
+            // Releasing only one chord key must not accidentally rearm it.
+            input.record(KeyboardEvent::key(0, 0, false), true);
+            input.update_pair_hold();
+            input.record(KeyboardEvent::key(0, 0, true), true);
+            input.update_pair_hold();
+            embassy_time::MockDriver::get().advance(PAIR_HOLD);
+            input.fire_pair_hold();
+            assert!(super::super::PAIRING_REQUEST.try_take().is_none());
+            for col in [0, 5] {
+                input.record(KeyboardEvent::key(0, col, false), true);
+            }
+            input.update_pair_hold();
+            for col in [0, 5] {
+                input.record(KeyboardEvent::key(0, col, true), true);
+            }
+            input.update_pair_hold();
+            embassy_time::MockDriver::get().advance(PAIR_HOLD);
+            input.fire_pair_hold();
+            assert!(super::super::PAIRING_REQUEST.try_take().is_some());
+        });
+    }
+
+    #[test]
+    fn success_requires_input_synchronization_to_finish() {
+        test_block_on(async {
+            let mut input = PeripheralInput::new(4, 7);
+            input.record(KeyboardEvent::key(1, 1, true), false);
+            super::super::PairingWindow::new().open();
+            struct FailingWriter;
+            impl SplitWriter for FailingWriter {
+                async fn write(
+                    &mut self,
+                    message: &SplitMessage,
+                ) -> Result<usize, SplitDriverError> {
+                    // Held-key synchronization succeeds, but the final ready ACK fails.
+                    if matches!(message, SplitMessage::ConnectionStatus(_)) {
+                        Err(SplitDriverError::Disconnected)
+                    } else {
+                        Ok(1)
+                    }
+                }
+            }
+            assert!(input.synchronize(&mut FailingWriter).await.is_err());
+            assert_eq!(
+                super::super::pairing_state(),
+                Some(super::super::PairingState::Open)
+            );
+            input.synchronize(&mut Writer::default()).await.unwrap();
+            assert_eq!(
+                super::super::pairing_state(),
+                Some(super::super::PairingState::Success)
+            );
         });
     }
 }

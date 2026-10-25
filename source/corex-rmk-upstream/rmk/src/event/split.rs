@@ -46,4 +46,5 @@ pub struct ClearPeerEvent;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SplitPairingEvent {
     pub open: bool,
+    pub state: crate::split::ble::PairingState,
 }

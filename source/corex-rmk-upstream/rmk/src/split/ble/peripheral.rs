@@ -1,8 +1,8 @@
 #[cfg(feature = "subrating")]
 use bt_hci::{cmd::le::LeSetHostFeature, controller::ControllerCmdSync};
-use embassy_futures::join::join;
-use embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Timer};
+use embassy_futures::join::join3;
+use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_time::{Duration, Timer, with_timeout};
 #[cfg(feature = "custom_message")]
 use postcard::experimental::max_size::MaxSize;
 use rmk_types::connection::ConnectionStatus;
@@ -256,23 +256,25 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
 
         let server = BleSplitPeripheralServer::new_default("rmk").unwrap();
         let mut pairing = super::PairingWindow::new();
-        if central_addr.is_none() {
-            // One bounded commissioning window after booting an unpaired half.
-            pairing.open();
-        }
         let mut reset_requested = false;
         loop {
             reset_requested |= super::PAIRING_REQUEST.try_take().is_some();
+            // Wake observers before Open, including after waiting without a peer.
+            publish_event(SleepStateEvent::new(false));
             if reset_requested {
                 reset_requested = false;
-                if crate::storage::store(crate::storage::StorageItem::PeerAddress(
-                    PeerAddress::new(0, false, [0; 6]),
-                ))
-                .await
-                .is_err()
-                {
+                if !matches!(
+                    with_timeout(
+                        Duration::from_secs(5),
+                        crate::storage::store(crate::storage::StorageItem::PeerAddress(
+                            PeerAddress::new(0, false, [0; 6]),
+                        ))
+                    )
+                    .await,
+                    Ok(Ok(_))
+                ) {
                     error!("Cannot clear saved split peer; pairing remains closed");
-                    pairing.close();
+                    pairing.fail();
                     continue;
                 }
                 central_addr = None;
@@ -280,7 +282,6 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
             }
             update_status(|c| *c = ConnectionStatus::new());
             publish_event(CentralConnectedEvent { connected: false });
-            publish_event(SleepStateEvent::new(false));
             let timeout = if central_addr.is_some() {
                 Duration::from_secs(300)
             } else if let Some(remaining) = pairing.remaining() {
@@ -315,21 +316,19 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
                         drop(conn);
                         continue;
                     }
+                    let registration_deadline = super::pairing_deadline();
                     if central_addr.is_none() {
-                        if crate::storage::store(crate::storage::StorageItem::PeerAddress(
-                            PeerAddress::new(0, true, new_addr),
-                        ))
-                        .await
-                        .is_err()
+                        if super::save_pairing_peer(PeerAddress::new(0, true, new_addr))
+                            .await
+                            .is_err()
                         {
-                            error!("Cannot save split central");
+                            error!("Cannot save split central within the pairing window");
                             drop(conn);
                             continue;
                         }
                         central_addr = Some(new_addr);
                     }
-                    pairing.close();
-                    publish_event(CentralConnectedEvent { connected: true });
+
                     let mut link =
                         SplitPeripheral::new(BleSplitPeripheralDriver::new(&server, &conn));
                     #[cfg(not(feature = "custom_message"))]
@@ -341,9 +340,23 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
                             custom_to_central.notify_raw(&conn, encoded, false).await
                         })
                     });
-                    if let Either::First(()) = select(super::PAIRING_REQUEST.wait(), session).await
+                    match select3(
+                        super::PAIRING_REQUEST.wait(),
+                        session,
+                        super::pairing_setup_deadline(registration_deadline),
+                    )
+                    .await
                     {
-                        reset_requested = true;
+                        Either3::First(()) => reset_requested = true,
+                        Either3::Second(_) if super::pairing_window_open() => pairing.fail(),
+                        _ => (),
+                    }
+                    if !super::registration_succeeded(registration_deadline, true) {
+                        central_addr = None;
+                        if !super::invalidate_pairing_peer(0).await {
+                            error!("Cannot invalidate failed split registration");
+                            pairing.fail();
+                        }
                     }
                     drop(conn);
                     info!("Disconnected from the central");
@@ -369,9 +382,10 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
         }
     };
 
-    join(
+    join3(
         crate::ble::ble_task(runner, &crate::ble::NoopHandler),
         peri_task,
+        super::pairing_deadline_task(),
     )
     .await;
 }

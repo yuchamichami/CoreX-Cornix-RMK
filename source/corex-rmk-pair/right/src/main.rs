@@ -9,6 +9,7 @@ mod paw3222;
 mod paw3222_schedule;
 mod paw_wire;
 mod pointing_mode;
+mod pairing_keys;
 #[path = "../../shared/status_led.rs"]
 mod status_led;
 mod tuning;
@@ -17,6 +18,10 @@ use rmk::macros::rmk_central;
 // Raytac uses independent PAW3222 modules on J4 (device 0) and J3 (device 1).
 #[rmk_central]
 mod keyboard {
+    #[register_processor(poll)]
+    fn pairing_keys() -> crate::pairing_keys::PairingKeys {
+        crate::pairing_keys::PairingKeys::new()
+    }
     #[register_processor(poll)]
     fn status_leds() -> crate::status_led::StatusLeds {
         use embassy_nrf::gpio::{Level, Output, OutputDrive};

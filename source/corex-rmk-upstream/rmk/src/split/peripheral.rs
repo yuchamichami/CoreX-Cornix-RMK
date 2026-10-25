@@ -5,8 +5,6 @@ use embassy_futures::select::{Either, select};
 #[cfg(not(feature = "_ble"))]
 use embedded_io_async::{Read, Write};
 use futures::FutureExt;
-#[cfg(all(feature = "_ble", feature = "storage"))]
-use {super::ble::PeerAddress, crate::storage::StorageItem};
 #[cfg(feature = "_ble")]
 use {
     crate::event::{BatteryStatusEvent, ChargingStateEvent, EventSubscriber},
@@ -169,6 +167,71 @@ mod tests {
             ));
         });
     }
+
+    #[test]
+    fn connected_peer_clear_returns_failed_when_flash_stalls() {
+        test_block_on(async {
+            crate::storage::clear_flash_channel();
+            let incoming = Channel::new();
+            let outgoing = RefCell::new(std::vec::Vec::new());
+            let mut input = PeripheralInput::new(4, 7);
+            let mut peripheral = SplitPeripheral::new(Link {
+                incoming: &incoming,
+                outgoing: &outgoing,
+            });
+            incoming.send(SplitMessage::ClearPeer).await;
+            let started = embassy_time::Instant::now();
+            peripheral.run(&mut input).await;
+            assert!(started.elapsed() < embassy_time::Duration::from_secs(6));
+            assert_eq!(
+                crate::split::ble::pairing_state(),
+                Some(crate::split::ble::PairingState::Failed)
+            );
+            assert!(!crate::split::ble::pairing_window_open());
+        });
+    }
+
+    #[test]
+    fn connected_peer_clear_does_not_wait_forever_for_its_ack_write() {
+        test_block_on(async {
+            crate::storage::clear_flash_channel();
+            struct StalledAck {
+                requested: bool,
+            }
+            impl SplitReader for StalledAck {
+                async fn read(&mut self) -> Result<SplitMessage, SplitDriverError> {
+                    if !self.requested {
+                        self.requested = true;
+                        Ok(SplitMessage::ClearPeer)
+                    } else {
+                        core::future::pending().await
+                    }
+                }
+            }
+            impl SplitWriter for StalledAck {
+                async fn write(&mut self, _: &SplitMessage) -> Result<usize, SplitDriverError> {
+                    core::future::pending().await
+                }
+            }
+            let mut input = PeripheralInput::new(4, 7);
+            let mut peripheral = SplitPeripheral::new(StalledAck { requested: false });
+            let started = embassy_time::Instant::now();
+            assert!(matches!(
+                select(
+                    peripheral.run(&mut input),
+                    crate::storage::drain_flash_channel(),
+                )
+                .await,
+                Either::First(())
+            ));
+            assert!(started.elapsed() >= embassy_time::Duration::from_secs(1));
+            assert!(started.elapsed() < embassy_time::Duration::from_secs(2));
+            assert_ne!(
+                crate::split::ble::pairing_state(),
+                Some(crate::split::ble::PairingState::Failed)
+            );
+        });
+    }
 }
 
 /// The split peripheral instance.
@@ -256,16 +319,19 @@ impl<S: SplitWriter + SplitReader> SplitPeripheral<S> {
                         #[cfg(all(feature = "_ble", feature = "storage"))]
                         SplitMessage::ClearPeer => {
                             // Acknowledge only after flash has accepted the reset.
-                            if crate::storage::store(StorageItem::PeerAddress(PeerAddress::new(
-                                0, false, [0; 6],
-                            )))
-                            .await
-                            .is_ok()
-                            {
-                                let _ = self.split_driver.write(&SplitMessage::ClearPeerAck).await;
-                                super::ble::request_pairing();
+                            // Neither stalled flash nor a lost acknowledgement may
+                            // keep this obsolete session alive indefinitely.
+                            if !super::ble::invalidate_pairing_peer(0).await {
+                                super::ble::pairing_failed();
                                 return;
                             }
+                            let _ = embassy_time::with_timeout(
+                                embassy_time::Duration::from_secs(1),
+                                self.split_driver.write(&SplitMessage::ClearPeerAck),
+                            )
+                            .await;
+                            super::ble::request_pairing();
+                            return;
                         }
                         SplitMessage::KeyboardIndicator(indicator) => {
                             // Publish KeyboardIndicator event

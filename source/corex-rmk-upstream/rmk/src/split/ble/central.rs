@@ -1,4 +1,4 @@
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "subrating")]
@@ -6,6 +6,7 @@ use bt_hci::cmd::le::LeSubrateRequest;
 use bt_hci::cmd::le::{LeReadLocalSupportedFeatures, LeSetPhy, LeSetScanParams};
 use bt_hci::controller::{ControllerCmdAsync, ControllerCmdSync};
 use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
@@ -113,22 +114,33 @@ pub(crate) async fn scan_and_connect_peripherals<
          crate::SPLIT_PERIPHERALS_NUM],
     ended: &Channel<NoopRawMutex, usize, { crate::SPLIT_PERIPHERALS_NUM }>,
 ) {
+    select(
+        scan_and_connect_lifecycle(stack, conns, ended),
+        super::pairing_deadline_task(),
+    )
+    .await;
+}
+
+async fn scan_and_connect_lifecycle<'a, C: Controller + ControllerCmdSync<LeSetScanParams>>(
+    stack: &'a Stack<'_, C, DefaultPacketPool>,
+    conns: &[Channel<NoopRawMutex, Connection<'a, DefaultPacketPool>, 1>;
+         crate::SPLIT_PERIPHERALS_NUM],
+    ended: &Channel<NoopRawMutex, usize, { crate::SPLIT_PERIPHERALS_NUM }>,
+) {
     let mut peripheral_slots: [SlotState; crate::SPLIT_PERIPHERALS_NUM] =
         core::array::from_fn(|_| SlotState::NoAddr);
     restore_saved_peers(&mut peripheral_slots).await;
     let mut pairing = super::PairingWindow::new();
-    if peripheral_slots
-        .iter()
-        .any(|slot| matches!(slot, SlotState::NoAddr))
-    {
-        pairing.open();
-    }
     let mut reset_requested = false;
     let mut central = stack.central();
     wait_for_stack_started().await;
     loop {
         while let Ok(id) = ended.try_receive() {
-            peripheral_slots[id].session_ended();
+            if SESSION_REGISTRATION_FAILED[id].swap(false, Ordering::AcqRel) {
+                peripheral_slots[id] = SlotState::NoAddr;
+            } else {
+                peripheral_slots[id].session_ended();
+            }
             clear_link_reset(id);
         }
         reset_requested |= super::PAIRING_REQUEST.try_take().is_some();
@@ -138,6 +150,8 @@ pub(crate) async fn scan_and_connect_peripherals<
             if clear_saved_peers(&mut peripheral_slots).await {
                 report_activity();
                 pairing.open();
+            } else {
+                pairing.fail();
             }
         }
         let pairing_remaining = pairing.remaining();
@@ -191,11 +205,9 @@ pub(crate) async fn scan_and_connect_peripherals<
                         .iter()
                         .find(|(_, addr)| Address::random(*addr) == peer)
                     {
+                        let registration_deadline = super::pairing_deadline();
                         if matches!(peripheral_slots[id], SlotState::Candidate(_)) {
-                            if pairing.remaining().is_none()
-                                || store(StorageItem::PeerAddress(PeerAddress::new(
-                                    id as u8, true, addr,
-                                )))
+                            if super::save_pairing_peer(PeerAddress::new(id as u8, true, addr))
                                 .await
                                 .is_err()
                             {
@@ -204,6 +216,8 @@ pub(crate) async fn scan_and_connect_peripherals<
                                 continue;
                             }
                         }
+                        SESSION_PAIRING_DEADLINE[id]
+                            .lock(|deadline| deadline.set(registration_deadline));
                         peripheral_slots[id] = SlotState::Connected(addr);
                         conns[id].send(conn).await;
                     }
@@ -236,7 +250,6 @@ pub(crate) async fn scan_and_connect_peripherals<
             .iter()
             .all(|s| matches!(s, SlotState::Connected(_)))
         {
-            pairing.close();
             if let Either::First(()) =
                 select(super::PAIRING_REQUEST.wait(), ended.ready_to_receive()).await
             {
@@ -249,7 +262,26 @@ pub(crate) async fn scan_and_connect_peripherals<
                 .any(|slot| matches!(slot, SlotState::NoAddr))
         {
             PERIPHERAL_FOUND.reset();
-            let session = start_scan(stack, SPLIT_CENTRAL_SCAN_WINDOW, &[]).await;
+            let session = match select(
+                super::PAIRING_REQUEST.wait(),
+                with_timeout(remaining, start_scan(stack, SPLIT_CENTRAL_SCAN_WINDOW, &[])),
+            )
+            .await
+            {
+                Either::First(()) => {
+                    reset_requested = true;
+                    continue;
+                }
+                Either::Second(Ok(session)) => session,
+                Either::Second(Err(_)) => {
+                    pairing.remaining();
+                    continue;
+                }
+            };
+            let Some(remaining) = pairing.remaining() else {
+                let _ = with_timeout(Duration::from_secs(1), session.stop()).await;
+                continue;
+            };
             let event = select(
                 super::PAIRING_REQUEST.wait(),
                 with_timeout(
@@ -262,7 +294,7 @@ pub(crate) async fn scan_and_connect_peripherals<
                 ),
             )
             .await;
-            session.stop().await;
+            let _ = with_timeout(Duration::from_secs(1), session.stop()).await;
             match event {
                 Either::First(()) => reset_requested = true,
                 Either::Second(Ok(Either3::First((id, addr)))) => {
@@ -294,6 +326,37 @@ pub(crate) async fn scan_and_connect_peripherals<
             {
                 reset_requested = true;
             }
+        }
+    }
+}
+
+static SESSION_PAIRING_DEADLINE: [Mutex<crate::RawMutex, Cell<Option<Instant>>>;
+    crate::SPLIT_PERIPHERALS_NUM] =
+    [const { Mutex::new(Cell::new(None)) }; crate::SPLIT_PERIPHERALS_NUM];
+
+static SESSION_REGISTRATION_FAILED: [AtomicBool; crate::SPLIT_PERIPHERALS_NUM] =
+    [const { AtomicBool::new(false) }; crate::SPLIT_PERIPHERALS_NUM];
+
+static SESSION_READY: [AtomicBool; crate::SPLIT_PERIPHERALS_NUM] =
+    [const { AtomicBool::new(false) }; crate::SPLIT_PERIPHERALS_NUM];
+
+fn mark_session_ready(id: usize) {
+    if SESSION_PAIRING_DEADLINE[id]
+        .lock(Cell::get)
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        if super::pairing_window_open() {
+            super::finish_pairing(super::PairingState::Timeout);
+        }
+        return;
+    }
+    if !link_reset_requested(id) && !SESSION_READY[id].swap(true, Ordering::AcqRel) {
+        set_peripheral_connected(id, true);
+        if SESSION_READY
+            .iter()
+            .all(|ready| ready.load(Ordering::Acquire))
+        {
+            super::pairing_succeeded();
         }
     }
 }
@@ -339,12 +402,16 @@ async fn reset_disconnect_deadline(id: usize) {
 async fn clear_saved_peers(slots: &mut [SlotState]) -> bool {
     let mut cleared = false;
     for (id, slot) in slots.iter_mut().enumerate() {
-        if store(StorageItem::PeerAddress(PeerAddress::new(
-            id as u8, false, [0; 6],
-        )))
-        .await
-        .is_ok()
-        {
+        if matches!(
+            with_timeout(
+                Duration::from_secs(5),
+                store(StorageItem::PeerAddress(PeerAddress::new(
+                    id as u8, false, [0; 6],
+                )))
+            )
+            .await,
+            Ok(Ok(_))
+        ) {
             if slot.clear_peer() {
                 request_link_reset(id);
             }
@@ -439,14 +506,16 @@ pub(crate) async fn run_peripheral_session<
     trace!("SPLIT_MESSAGE_MAX_SIZE: {}", SPLIT_MESSAGE_MAX_SIZE);
     loop {
         let conn = conns.receive().await;
-        set_peripheral_connected(id, true);
+        SESSION_READY[id].store(false, Ordering::Release);
+        let registration_deadline = SESSION_PAIRING_DEADLINE[id].lock(Cell::get);
         let pressed_keys = RefCell::new(MatrixState::new(
             matrix_config.rows.into(),
             matrix_config.cols.into(),
         ));
-        if let Either::First(Err(e)) = select(
+        if let Either3::First(Err(e)) = select3(
             run_central_manager_task(id, stack, &conn, matrix_config, &pressed_keys),
             reset_disconnect_deadline(id),
+            super::pairing_setup_deadline(registration_deadline),
         )
         .await
         {
@@ -454,6 +523,29 @@ pub(crate) async fn run_peripheral_session<
             let e = defmt::Debug2Format(&e);
             error!("BLE central error: {:?}", e);
         }
+        if !SESSION_READY[id].load(Ordering::Acquire)
+            && super::pairing_window_open()
+            && !link_reset_requested(id)
+        {
+            super::finish_pairing(super::PairingState::Failed);
+        }
+        if !super::registration_succeeded(
+            registration_deadline,
+            SESSION_READY[id].load(Ordering::Acquire),
+        ) {
+            // A candidate that never acknowledged input readiness is not a saved
+            // pair. Do not let the next reconnect bypass the registration gate.
+            SESSION_REGISTRATION_FAILED[id].store(true, Ordering::Release);
+            if !super::invalidate_pairing_peer(id as u8).await {
+                error!("Cannot invalidate failed split registration {}", id);
+                if super::pairing_deadline().is_none()
+                    || super::pairing_deadline() == registration_deadline
+                {
+                    super::finish_pairing(super::PairingState::Failed);
+                }
+            }
+        }
+        SESSION_READY[id].store(false, Ordering::Release);
         set_peripheral_connected(id, false);
         release_disconnected_keys(&pressed_keys, matrix_config).await;
         // Dropping the last handle files a disconnect request that the stack
@@ -737,6 +829,9 @@ async fn discover_and_run_manager<C: Controller + ControllerCmdAsync<LeSetPhy>, 
     info!("Subscribing notifications");
     let listener = client.subscribe(&message_to_central, false).await?;
     let split_ble_driver = BleSplitCentralDriver {
+        id,
+        status_sent: false,
+        require_input_ack: SESSION_PAIRING_DEADLINE[id].lock(Cell::get).is_some(),
         listener,
         message_to_peripheral,
         client,
@@ -824,6 +919,9 @@ struct BleSplitCentralDriver<
     C: Controller + ControllerCmdAsync<LeSetPhy>,
     P: PacketPool,
 > {
+    id: usize,
+    status_sent: bool,
+    require_input_ack: bool,
     listener: NotificationListener<'b, { trouble_host::config::GATT_CLIENT_NOTIFICATION_MTU }>,
     message_to_peripheral: Characteristic<GattSplitMessage>,
     client: &'c GattClient<'a, C, P, 10>,
@@ -838,6 +936,11 @@ impl<'a, 'b, 'c, C: Controller + ControllerCmdAsync<LeSetPhy>, P: PacketPool> Sp
         let message =
             postcard::from_bytes(data.as_ref()).map_err(|_| SplitDriverError::DeserializeError)?;
         debug!("Received split message: {:?}", message);
+        // CoreX v0.11.4 echoes this only after the peripheral has synchronized
+        // its held inputs. Unlike write-without-response, this proves a round trip.
+        if self.status_sent && matches!(message, SplitMessage::ConnectionStatus(_)) {
+            mark_session_ready(self.id);
+        }
 
         if let SplitMessage::Key(event) = message {
             self.pressed_keys.borrow_mut().update(&event);
@@ -868,6 +971,15 @@ impl<'a, 'b, 'c, C: Controller + ControllerCmdAsync<LeSetPhy>, P: PacketPool> Sp
             #[cfg(feature = "defmt")]
             let e = defmt::Debug2Format(&e);
             error!("BLE message_to_peripheral_write error: {:?}", e);
+            return Err(SplitDriverError::BleError(1));
+        }
+        if matches!(message, SplitMessage::ConnectionStatus(_)) && !link_reset_requested(self.id) {
+            self.status_sent = true;
+            // Saved peers from earlier firmware keep reconnecting. A new
+            // registration must acknowledge its input-ready state explicitly.
+            if !self.require_input_ack {
+                mark_session_ready(self.id);
+            }
         }
 
         Ok(gatt_msg.len)
@@ -1090,6 +1202,21 @@ mod tests {
             );
             assert!(events.try_next_message_pure().is_none());
             assert!(!keys.borrow().any_pressed());
+        });
+    }
+    #[test]
+    fn a_stalled_peer_clear_is_bounded_and_allows_another_request() {
+        block_on(async {
+            crate::storage::clear_flash_channel();
+            super::super::request_pairing();
+            assert!(super::super::PAIRING_REQUEST.try_take().is_some());
+            let mut slots = [SlotState::Disconnected([1; 6])];
+            let started = Instant::now();
+            assert!(!clear_saved_peers(&mut slots).await);
+            assert!(started.elapsed() < Duration::from_secs(6));
+            super::super::PairingWindow::new().fail();
+            super::super::request_pairing();
+            assert!(super::super::PAIRING_REQUEST.try_take().is_some());
         });
     }
 }
