@@ -1,4 +1,2 @@
-source/corex-rmk-upstream/** linguist-vendored
-licenses/** linguist-vendored
-firmware/*.uf2 binary
-docs/images/*.png binary
+# Preserve upstream license bytes, including CRLF and trailing spaces.
+licenses/** -text -whitespace
