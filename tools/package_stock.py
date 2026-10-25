@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Package the stock Cornix experiment separately from the CoreX release."""
+"""Package independently built stock Cornix firmware."""
+import argparse
 import hashlib
 import json
 import lzma
@@ -12,6 +13,9 @@ from stock_cornix import generate
 ROOT = Path(__file__).resolve().parents[1]
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check', action='store_true', help='Verify build and configuration identity without replacing distribution files')
+    args = parser.parse_args()
     version = (ROOT / 'source/corex-rmk-pair/VERSION').read_text().strip()
     config, vial = generate()
     assert config == (ROOT / 'source/corex-rmk-pair/right/keyboard-stock.toml').read_text()
@@ -33,11 +37,12 @@ def main():
         assert uf2 == rebuilt
         if half=='Right':
             assert definition in binary and b'Cornix CoreX' in binary
-        else:
-            # Reuse the checked-in stock peripheral without changing its code.
-            assert uf2 == (ROOT/'firmware'/f'{stem.name}.uf2').read_bytes()
         images.append(dict(filename=stem.name+'.uf2',side=half.lower(),sha256=hashlib.sha256(uf2).hexdigest(),flash_start=hex(start),flash_end_exclusive=hex(end)))
-    out=ROOT/'firmware/cornix-stock-preview'
+    out=ROOT/'firmware'
+    if args.check:
+        assert contract == json.loads((out/'manifest.json').read_text())['configuration_profile']
+        print('PASS independent stock builds: linked ELF, UF2 vectors/bounds, unchanged compiled Vial identity; hardware untested')
+        return
     out.mkdir(exist_ok=True)
     for image in images: shutil.copy2(ROOT/'build/firmware'/image['filename'],out/image['filename'])
     (out/'definition.xz').write_bytes(definition)

@@ -2,6 +2,7 @@
 # Host tests and distribution checks; no connected hardware is accessed.
 set -eu
 COREX_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+sh -n "$COREX_ROOT/build.sh" "$COREX_ROOT/tools/build-board.sh" "$COREX_ROOT/tools/test.sh"
 COREX_RUSTC=$(rustup which --toolchain 1.95.0 rustc)
 mkdir -p "$COREX_ROOT/build/tests"
 for COREX_REL_MODULE in right/src/paw_wire right/src/tuning_values right/src/paw3222_schedule right/src/pairing_keys_logic shared/status_led_logic; do
@@ -19,6 +20,6 @@ python3 "$COREX_ROOT/tools/test_stock_cornix.py"
 python3 "$COREX_ROOT/tools/corex_defaults.py" --check
 python3 "$COREX_ROOT/tools/test_make_uf2.py"
 python3 "$COREX_ROOT/tools/check_licenses.py"
-python3 "$COREX_ROOT/tools/verify_release.py"
+python3 "$COREX_ROOT/tools/verify_stock.py"
 "$COREX_ROOT/tools/test_ble.sh"
 "$COREX_ROOT/tools/test_pointing.sh"

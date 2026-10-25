@@ -55,11 +55,11 @@ class StockCornix(unittest.TestCase):
 
     def test_packaged_contract_matches_sources(self):
         import lzma
-        folder=ROOT/'firmware/cornix-stock-preview'
+        folder=ROOT/'firmware'
         manifest=json.loads((folder/'manifest.json').read_text());definition=(folder/'definition.xz').read_bytes()
         self.assertEqual(json.loads(lzma.decompress(definition)),json.loads((BOARD/'vial-stock.json').read_text()))
         self.assertEqual(manifest['configuration_profile']['definitionSha256'],hashlib.sha256(definition).hexdigest())
         for image in manifest['images']:self.assertEqual(image['sha256'],hashlib.sha256((folder/image['filename']).read_bytes()).hexdigest())
-        self.assertEqual((folder/'Cornix-Stock-Left-v0.11.4.uf2').read_bytes(),(ROOT/'firmware/Cornix-Stock-Left-v0.11.4.uf2').read_bytes())
+        self.assertEqual({i['side'] for i in manifest['images']},{'right','left'})
 
 if __name__=='__main__':unittest.main()

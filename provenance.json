@@ -1,16 +1,8 @@
 {
-  "status": "experimental-hardware-unverified",
-  "version": "0.11.4",
-  "configuration_profile": {
-    "model": "cornix-stock",
-    "uid": "436f726558535431",
-    "firmware": 2820,
-    "pointingDevices": [],
-    "gestures": false,
-    "definitionSize": 988,
-    "definitionSha256": "9619462d3634a6145d1ea26e5aeb9ef2fb3c359927829bcd5017c60e7d1f828c"
-  },
-  "images": [
+  "repository": "https://github.com/yuchamichami/CoreX-RMK",
+  "commit": "ca9525f31a4593fc804d9f5bae96e2d3c16c2299",
+  "scope": "Stock Cornix pair extracted without changing shipped firmware identity or UF2 bytes",
+  "original_images": [
     {
       "filename": "Cornix-Stock-Right-v0.11.4.uf2",
       "side": "right",

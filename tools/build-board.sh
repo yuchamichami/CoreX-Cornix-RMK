@@ -3,31 +3,18 @@
 set -eu
 COREX_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 COREX_SIDE=${1:-}
-case "$COREX_SIDE" in right|left) ;; *) printf 'Use ./build.sh [right|left|stock-left|all] [s140v6|s140v7|both]\n' >&2; exit 2 ;; esac
+case "$COREX_SIDE" in right|left) ;; *) printf 'Use ./build.sh [right|left|all]\n' >&2; exit 2 ;; esac
 COREX_BOARD=${COREX_BOARD:-prototype}
-case "$COREX_BOARD" in prototype|raytac-r-a14|raytac-l-rev1|cornix-stock-right) ;; *) printf 'Unknown CoreX board\n' >&2; exit 2 ;; esac
-if [ "$COREX_BOARD" = cornix-stock-right ]; then
-    [ "$COREX_SIDE" = right ] || exit 2
-    unset COREX_RAYTAC_APP_BASE
-    KEYBOARD_TOML_PATH="$COREX_ROOT/source/corex-rmk-pair/right/keyboard-stock.toml"
-    COREX_UF2_TARGET=stock-right
-elif [ "$COREX_BOARD" != prototype ]; then
-    case "$COREX_BOARD" in
-        raytac-r-a14) COREX_EXPECTED_SIDE=right; COREX_MODEL=Right ;;
-        raytac-l-rev1) COREX_EXPECTED_SIDE=left; COREX_MODEL=Left ;;
-    esac
-    [ "$COREX_SIDE" = "$COREX_EXPECTED_SIDE" ] || { printf 'Raytac board and target side do not match\n' >&2; exit 2; }
-    case "${COREX_RAYTAC_APP_BASE:-}" in
-        0x26000) COREX_SOFTDEVICE=s140v6; COREX_UF2_TARGET=raytac-$COREX_SIDE-26000 ;;
-        0x27000) COREX_SOFTDEVICE=s140v7; COREX_UF2_TARGET=raytac-$COREX_SIDE-27000 ;;
-        *) printf 'Use ./build.sh right [s140v6|s140v7|both]\n' >&2; exit 2 ;;
-    esac
-    KEYBOARD_TOML_PATH="$COREX_ROOT/source/corex-rmk-pair/$COREX_SIDE/keyboard-raytac.toml"
-else
-    [ "$COREX_SIDE" = left ] || { printf 'The prototype configuration is only supported for the stock Cornix left. Use ./build.sh right for CoreX right.\n' >&2; exit 2; }
-    unset COREX_RAYTAC_APP_BASE
-    KEYBOARD_TOML_PATH="$COREX_ROOT/source/corex-rmk-pair/left/keyboard.toml"
-fi
+case "$COREX_BOARD:$COREX_SIDE" in
+    cornix-stock-right:right)
+        KEYBOARD_TOML_PATH="$COREX_ROOT/source/corex-rmk-pair/right/keyboard-stock.toml"
+        COREX_UF2_TARGET=stock-right ;;
+    prototype:left)
+        KEYBOARD_TOML_PATH="$COREX_ROOT/source/corex-rmk-pair/left/keyboard.toml"
+        COREX_UF2_TARGET=left ;;
+    *) echo 'Use ./build.sh [right|left|all]; this repository builds stock Cornix only' >&2; exit 2 ;;
+esac
+unset COREX_RAYTAC_APP_BASE
 export KEYBOARD_TOML_PATH
 COREX_RUSTC=$(rustup which --toolchain 1.95.0 rustc)
 COREX_RUST_BIN=$(dirname "$COREX_RUSTC")
@@ -68,9 +55,6 @@ for COREX_HALF in right left; do
     if [ "$COREX_BOARD" = cornix-stock-right ]; then
         cargo build --release --locked --features cornix-stock-right
         COREX_NAME="Cornix-Stock-Right-v$COREX_FIRMWARE_VERSION"
-    elif [ "$COREX_BOARD" != prototype ]; then
-        cargo build --release --locked --features "$COREX_BOARD"
-        COREX_NAME="CoreX-$COREX_MODEL-v$COREX_FIRMWARE_VERSION-$COREX_SOFTDEVICE"
     else
         cargo build --release --locked
         COREX_NAME="Cornix-Stock-Left-v$COREX_FIRMWARE_VERSION"

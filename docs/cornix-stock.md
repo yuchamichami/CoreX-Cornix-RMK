@@ -4,7 +4,7 @@ Cornix純正の左右基板にCoreXファームを書き込み、CoreX Studioと
 
 ## ファイルを選ぶ
 
-[純正Cornix用の配布フォルダ](../firmware/cornix-stock-preview/)に、左右のUF2とチェックサムを置いています。
+[純正Cornix用の配布フォルダ](../firmware/)に、左右のUF2とチェックサムを置いています。
 
 | 基板 | ファイル |
 | --- | --- |

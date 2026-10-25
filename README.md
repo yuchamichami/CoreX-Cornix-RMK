@@ -1,63 +1,30 @@
-# CoreX
+# CoreX for Cornix
 
-Cornixのケースに対応した交換基板向けのファームウェアです。トラックボールとキー割り当てを本体で処理します。Bluetoothの接続名は **Cornix TB**、Vialの表示名は **CoreX** です。
+Cornix純正の左右基板でCoreXファームを使うためのリポジトリです。純正の50キー（ダイヤル押し込み2個を含む）・10レイヤー・左右ダイヤルを保持し、[CoreX Studio](https://corex-studio.pages.dev/)とVialで設定できます。PCへのUSB接続は右側、Bluetooth名は **Cornix CoreX** です。
 
-このリポジトリではファームウェアを配布します。設定用Webアプリ [CoreX Studio](https://corex-studio.pages.dev/) は別に管理しています。[Vial](https://get.vial.today/)もUSB接続で使えます。
+**現在は実機確認前の試験版です。** ビルド・通信モック・配列と書き込み範囲を検証していますが、純正基板での起動、入力、左右接続、LED、電池消費は未確認です。
 
-**純正Cornixの左右基板向けには、別の[試験版と導入手順](docs/cornix-stock.md)があります。** 実機確認前です。以下のトラックボールの案内と交換基板用UF2は、この試験版とは別です。
+## ダウンロードと使い方
 
-## 書き込み済みのセットを使う
+[配布ファイル](firmware/)から基板に合うUF2を選び、[導入手順](docs/cornix-stock.md)に従って左右とも書き込みます。
 
-以下の登録手順とLED表示は、左右ともCoreX v0.11.4を書き込んだセット向けです。旧版が入っている場合は、左右とも更新してから進めてください。
-
-1. 左右の電源をONにします。
-2. **右側**をデータ通信対応のUSBケーブルでPCにつなぎます。左は無線で右につながります。
-3. 初回は[左右を登録](docs/usage.md#左右の登録をやり直す)します。登録済みなら、同じ相手へ自動で再接続します。
-4. 左のキーから文字が入力できることを確認し、右のキーとボールも試します。
-
-v0.11.4では、固定位置のキーを5秒押して左右の登録を始めます。受付中は親指付近の2灯が青く点滅し、登録と保存ができると緑に2秒点灯します。電源ONやRESETだけでは、新しい相手の登録は始まりません。
-
-初期配列では、ボールを動かした直後に **Jで左クリック、Kで中クリック、Lで右クリック**できます。**Iを長押ししながらボールを動かすとスクロール**、Iを短く押すと文字を入力します。
-
-Bluetoothで使う場合は、[PCとの接続手順](docs/usage.md#bluetoothで接続する)で **Cornix TB** を登録します。設定アプリを常駐させる必要はありません。
-
-左にまだCornix純正ファームが入っている場合は、先に[純正左の書き込み手順](docs/flashing.md#cornix純正左を初めて組み合わせる)を進めてください。CoreX右と純正ファームの左は接続できません。
-
-## キーやトラックボールを設定する
-
-右をUSBで接続してVialを開き、**CoreX** を選びます。上の配列からキーを選び、下の候補を選ぶと本体へ反映されます。
-
-- [Vialでキー・感度・スクロールを変更する](docs/usage.md#vialで設定する)
-- [PCの切り替えと登録のやり直し](docs/usage.md#接続するpcを切り替える)
-- [左が反応しない・クリックできないとき](docs/usage.md#困ったとき)
-- [初期配列へ戻す](keymaps/README.md)
-
-<a id="ダウンロード"></a>
-
-## ファームウェアを更新する
-
-更新版は **v0.11.4のプレリリース**です。固定キーによる左右の登録とLEDの案内を追加しています。この版を書き込んだ実機での最終確認は未実施です。[検証状況](docs/validation.md)
-
-[ダウンロード](firmware/)と[書き込み手順](docs/flashing.md)を確認してください。配布履歴は[Releases](https://github.com/yuchamichami/CoreX-RMK/releases)にまとめています。
-
-| 手元の基板 | ファイル名 |
+| 基板 | ファイル |
 | --- | --- |
-| CoreX 右（R A14） | `CoreX-Right-v0.11.4-s140v6.uf2` または `s140v7` |
-| CoreX 左（L Rev1.0） | `CoreX-Left-v0.11.4-s140v6.uf2` または `s140v7` |
-| Cornix 純正左 | `Cornix-Stock-Left-v0.11.4.uf2` |
+| Cornix純正右 | [Cornix-Stock-Right-v0.11.4.uf2](firmware/Cornix-Stock-Right-v0.11.4.uf2) |
+| Cornix純正左 | [Cornix-Stock-Left-v0.11.4.uf2](firmware/Cornix-Stock-Left-v0.11.4.uf2) |
 
-**CoreX左用とCornix純正左用は別のファイルです。** `s140v6`／`s140v7`は本体のブートローダ情報に合わせて選びます。確認方法と更新後の操作は[書き込み手順](docs/flashing.md#ファイルを選ぶ)に記載しています。
+メーカー配布のCornix LP V1.12と公開基板定義を基準にしています。純正ファームやZMKが入った片側、純正無線ドングルとは組み合わせられません。メーカーの復元用ファームは含みません。
 
-## 対応する基板と機能
+- [書き込み・左右登録・Bluetooth接続](docs/cornix-stock.md)
+- [Studioで純正配列を試す](https://corex-studio.pages.dev/?preview=demo&device=cornix)
+- [検証状況とピン定義の根拠](docs/cornix-stock-validation.md)
 
-対象はCoreX R A14と、CoreX L Rev1.0または専用ファームを書き込んだCornix純正左です。CoreX-Proto-RMKの試作基板、Cornix純正右、ほかの基板には、この配布版を書き込まないでください。
-
-右のトラックボールはPAW3222に対応し、J3・J4のどちらのコネクタも使えます。2台同時接続は実機未確認です。左用はキー入力を右へ送るファームで、左のポインティングデバイスには対応していません。トラックパッド・トラックポイント・Cornix純正無線ドングルも、この配布版の対応対象に含みません。
+CoreX交換基板を使う場合は [CoreX-RMK](https://github.com/yuchamichami/CoreX-RMK) を使ってください。ここで配布するUF2は純正基板用です。
 
 ## 開発
 
 [ビルド手順](BUILDING.md) / [変更履歴](CHANGELOG.md) / [第三者ライセンス](THIRD_PARTY_NOTICES.md)
 
-CoreX-Proto-RMKから分離し、CoreX向けのファームソースと、ビルドに使うRMKのソースを管理しています。Studioの開発用ソースと配布物は含みません。
+CoreX-RMKから履歴と共通RMKソースを引き継ぎ、純正左右セットのビルド・配布・CIを独立させました。Studio本体は別管理です。機種のUIDと設定形式は分離前から変更していません。
 
-ライセンスは各ファイルの宣言に従います。CornixおよびVialの公式ファームウェア／公式アプリではありません。
+CornixおよびVialの公式ファームウェア／公式アプリではありません。各ソースのライセンス宣言と第三者の著作権表示を維持しています。

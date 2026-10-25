@@ -1,11 +1,12 @@
 # Firmware source
 
-- `corex-rmk-pair/right/`: CoreX R A14 central, with PAW3222 on J3 and J4. The root build command selects the production-board configuration.
-- `corex-rmk-pair/left/`: CoreX L Rev1.0 and stock Cornix left peripherals. Use `./build.sh left` for CoreX left and `./build.sh stock-left` for stock Cornix left; their firmware files are not interchangeable.
-- `corex-rmk-upstream/`: four RMK crates pinned to commit `8a6889854fb996be592c55075b385234133e1772`, with the CoreX patches described in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+This repository builds **stock Cornix right and left only**. Run `./build.sh [right|left|all]` from the repository root.
 
-Use the repository-root [`build.sh`](../build.sh) to preserve the settings schema and remove local paths from distributable firmware. See [BUILDING.md](../BUILDING.md).
+- `corex-rmk-pair/right/keyboard-stock.toml`, `vial-stock.json`, and `src/stock.rs`: stock Cornix central (USB on the right).
+- `corex-rmk-pair/left/keyboard.toml`: stock Cornix peripheral.
+- `corex-rmk-pair/shared/`: pairing/status display support shared by the board sources.
+- `corex-rmk-upstream/`: pinned RMK crates with the inherited CoreX changes. No sibling repository or submodule is required.
 
-Keyboard Cargo manifests retain their existing `MIT OR Apache-2.0` declarations. File-specific notices, including the Apache-2.0 PAW3222 wire implementation, take precedence.
+The source snapshot retains the original shared board drivers, configuration references, and host regression tests. They are not extra firmware download targets. Replacement-PCB releases remain in [CoreX-RMK](https://github.com/yuchamichami/CoreX-RMK).
 
-Current firmware versions are listed in the root [README](../README.md#ダウンロード) and [release manifest](../firmware/manifest.json).
+See [BUILDING.md](../BUILDING.md), [provenance.json](../provenance.json), and [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Existing license and copyright declarations are preserved.

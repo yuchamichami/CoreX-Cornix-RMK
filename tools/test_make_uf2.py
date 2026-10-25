@@ -40,7 +40,7 @@ def linked_application(base=0x27000):
 
 class FirmwareConversionTests(unittest.TestCase):
     def test_each_supported_target_preserves_payload_and_address(self):
-        for side, base in [('left', 0x1000), ('raytac-right-26000', 0x26000),
+        for side, base in [('stock-right', 0x1000), ('left', 0x1000), ('raytac-right-26000', 0x26000),
                            ('raytac-right-27000', 0x27000),
                            ('raytac-left-26000', 0x26000), ('raytac-left-27000', 0x27000)]:
             with self.subTest(side=side):
@@ -121,13 +121,13 @@ class BoardSelectionTests(unittest.TestCase):
                 self.assertIn('Use ./build.sh', result.stderr)
 
     def test_board_and_side_must_match(self):
-        for board, side in [('raytac-r-a14', 'left'), ('raytac-l-rev1', 'right')]:
+        for board, side in [('raytac-r-a14', 'left'), ('raytac-r-a14', 'right'), ('raytac-l-rev1', 'left'), ('raytac-l-rev1', 'right'), ('cornix-stock-right', 'left')]:
             with self.subTest(board=board):
                 result = subprocess.run(['/bin/sh', str(ROOT / 'tools/build-board.sh'), side],
                                         cwd=ROOT, env=dict(os.environ, COREX_BOARD=board),
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 2)
-                self.assertIn('board and target side do not match', result.stderr)
+                self.assertIn('stock Cornix only', result.stderr)
 
 
 if __name__ == '__main__':

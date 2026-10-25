@@ -28,13 +28,13 @@
 
 ```sh
 python3 tools/stock_cornix.py --check
-./build.sh stock-right
-./build.sh stock-left
+./build.sh right
+./build.sh left
 python3 tools/package_stock.py
 python3 tools/test_stock_cornix.py
 ./tools/test.sh
 ```
 
-`./build.sh all` と `package_release.py` は既存の5種類を維持します。純正左右セットは `firmware/cornix-stock-preview/` に独立して配置します。左は既存v0.11.4と同一バイナリです。Studioはこのフォルダのmanifestに含むUID・版・圧縮定義サイズ・SHA256と10レイヤーを照合してから編集を許可します。
+`./build.sh all` は純正左右の2種類をビルドし、`package_stock.py` が検証して `firmware/` に配置します。リポジトリ分離時の配布UF2は左右とも分離前のファイルをそのまま引き継いでいます。再ビルド結果はビルド環境によりハッシュが変わる場合があります。Studioはこのフォルダのmanifestに含むUID・版・圧縮定義サイズ・SHA256と10レイヤーを照合してから編集を許可します。
 
 この作業では実機への書き込みを行っていません。実機未確認項目は[利用案内](cornix-stock.md#検証状況)に記載しています。
